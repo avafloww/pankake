@@ -185,6 +185,7 @@ dependencies = [
  "nix",
  "parking_lot",
  "rusqlite",
+ "sha2",
  "tempfile",
  "tokio",
  "tracing",
