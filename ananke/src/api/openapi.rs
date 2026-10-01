@@ -23,7 +23,8 @@ use ananke_api::{
         get::OneshotStatus,
     },
     openai::{
-        ChatCompletionEnvelope, CompletionEnvelope, EmbeddingEnvelope, ModelListing, ModelsResponse,
+        ChatCompletionEnvelope, CompletionEnvelope, EmbeddingEnvelope, ModelListing,
+        ModelsResponse, response::ChatCompletionChunk,
     },
     services::{
         command::{
@@ -99,6 +100,7 @@ use crate::{
         ModelListing,
         ModelsResponse,
         ChatCompletionEnvelope,
+        ChatCompletionChunk,
         CompletionEnvelope,
         EmbeddingEnvelope,
         ananke_api::shared::errors::ApiError,

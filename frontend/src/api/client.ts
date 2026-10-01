@@ -1,233 +1,168 @@
-// Typed fetch helpers over the management API. Request + response shapes
-// come from `src/api/types.ts`, which is regenerated from the daemon's
-// OpenAPI document via `npm run gen-types`.
+import type { ValidateFunction } from "ajv";
 
-import type { components, paths } from "./types.ts";
+import { codec, deviceListCodec } from "./contract";
 
-type Schemas = components["schemas"];
-
-export type ServiceSummary = Schemas["ServiceSummary"];
-export type ServicesResponse = Schemas["ServicesResponse"];
-export type ServiceDetail = Schemas["ServiceDetail"];
-export type ContainerDetail = Schemas["ContainerDetail"];
-export type RestartEvent = Schemas["RestartEvent"];
-export type RestartsResponse = Schemas["RestartsResponse"];
-export type ServiceRestartEntry = Schemas["ServiceRestartEntry"];
-export type LaunchCommand = Schemas["LaunchCommand"];
-export type LaunchCommandResponse = Schemas["LaunchCommandResponse"];
-export type ModelInfo = Schemas["ModelInfo"];
-export type IkParams = Schemas["IkParams"];
-export type RuntimeInfo = Schemas["RuntimeInfo"];
-export type ServingConfig = Schemas["ServingConfig"];
-export type EstimateSummary = Schemas["EstimateSummary"];
-export type PlacementPreview = Schemas["PlacementPreview"];
-export type DevicePlacement = Schemas["DevicePlacement"];
-export type DeviceFootprint = Schemas["DeviceFootprint"];
-export type FitVerdict = Schemas["FitVerdict"];
-export type DeviceShortfall = Schemas["DeviceShortfall"];
-export type LogLine = Schemas["LogLine"];
-export type LogsResponse = Schemas["LogsResponse"];
-export type LogStreamMessage = Schemas["LogStreamMessage"];
-export type DeviceSummary = Schemas["DeviceSummary"];
-export type DeviceReservation = Schemas["DeviceReservation"];
-export type StartResponse = Schemas["StartResponse"];
-export type StopResponse = Schemas["StopResponse"];
-export type EnableResponse = Schemas["EnableResponse"];
-export type DisableResponse = Schemas["DisableResponse"];
-export type ConfigResponse = Schemas["ConfigResponse"];
-export type ConfigValidateResponse = Schemas["ConfigValidateResponse"];
-export type ValidationError = Schemas["ValidationError"];
-export type ApiError = Schemas["ApiError"];
-export type MetricsResponse = Schemas["MetricsResponse"];
-export type MetricBucketResponse = Schemas["MetricBucketResponse"];
-export type DeviceSamplesResponse = Schemas["DeviceSamplesResponse"];
-export type DeviceSampleResponse = Schemas["DeviceSampleResponse"];
-export type DaemonInfoResponse = Schemas["DaemonInfoResponse"];
-export type OneshotRequest = Schemas["OneshotRequest"];
-export type OneshotResponse = Schemas["OneshotResponse"];
-export type OneshotStatus = Schemas["OneshotStatus"];
-
-export type LogsQuery = {
-  since?: number;
-  until?: number;
-  run?: number;
-  stream?: "stdout" | "stderr" | "combined";
-  limit?: number;
-  before?: string;
+export type Result<T> =
+  | { readonly kind: "ok"; readonly value: T }
+  | { readonly kind: "error"; readonly message: string };
+export type Range = {
+  readonly since: number;
+  readonly until: number;
+  readonly preset: number | null;
 };
 
-export type MetricsQuery = {
-  service?: string;
-  since?: number;
-  until?: number;
-  bucket?: string;
-};
-
-async function getJson<T>(path: string): Promise<T> {
-  const resp = await fetch(path, { headers: { accept: "application/json" } });
-  if (!resp.ok) throw new Error(await errorMessage(resp));
-  return (await resp.json()) as T;
-}
-
-async function postJson<T>(path: string, body?: unknown): Promise<T> {
-  const resp = await fetch(path, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      ...(body !== undefined ? { "content-type": "application/json" } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!resp.ok && resp.status !== 202)
-    throw new Error(await errorMessage(resp));
-  return (await resp.json()) as T;
-}
-
-async function errorMessage(resp: Response): Promise<string> {
-  const fallback = `${resp.status} ${resp.statusText}`;
-  try {
-    const body = (await resp.json()) as { error?: unknown };
-    const e = body.error;
-    if (typeof e === "string") return e;
-    if (e && typeof e === "object" && "message" in e) {
-      const message = (e as { message?: unknown }).message;
-      if (typeof message === "string") return message;
-    }
-    return fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-export type ConfigSaveResult =
-  | { kind: "ok" }
-  | { kind: "hash_mismatch"; serverHash: string }
-  | { kind: "validation_errors"; errors: ValidationError[] }
-  | { kind: "error"; message: string };
-
-async function putConfigRaw(
-  toml: string,
-  hash: string,
-): Promise<ConfigSaveResult> {
-  const resp = await fetch("/api/config", {
-    method: "PUT",
-    headers: {
-      "content-type": "text/plain",
-      "if-match": `"${hash}"`,
-    },
-    body: toml,
-  });
-  if (resp.status === 202) return { kind: "ok" };
-  if (resp.status === 412) {
-    const etag = resp.headers.get("etag");
-    const serverHash = etag ? etag.replace(/"/g, "") : "";
-    return { kind: "hash_mismatch", serverHash };
-  }
-  if (resp.status === 422) {
-    const body = (await resp.json()) as ConfigValidateResponse;
-    return { kind: "validation_errors", errors: body.errors };
-  }
-  return { kind: "error", message: await errorMessage(resp) };
-}
+const services = codec("ServicesResponse");
+const detail = codec("ServiceDetail");
+const info = codec("DaemonInfoResponse");
+const metrics = codec("MetricsResponse");
+const restarts = codec("RestartsResponse");
+const samples = codec("DeviceSamplesResponse");
+const logs = codec("LogsResponse");
+const config = codec("ConfigResponse");
+const validation = codec("ConfigValidateResponse");
 
 export const api = {
-  listServices: () =>
-    getJson<
-      paths["/api/services"]["get"]["responses"]["200"]["content"]["application/json"]
-    >("/api/services"),
-  serviceDetail: (name: string) =>
-    getJson<ServiceDetail>(`/api/services/${encodeURIComponent(name)}`),
-  serviceCommand: (name: string) =>
-    getJson<LaunchCommandResponse>(
-      `/api/services/${encodeURIComponent(name)}/command`,
+  services: (signal?: AbortSignal) =>
+    request("/api/services", services, signal),
+  detail: (name: string, signal?: AbortSignal) =>
+    request(`/api/services/${encodeURIComponent(name)}`, detail, signal),
+  devices: (signal?: AbortSignal) =>
+    request("/api/devices", deviceListCodec, signal),
+  info: (signal?: AbortSignal) => request("/api/info", info, signal),
+  metrics: (range: Range, service?: string, signal?: AbortSignal) =>
+    request(
+      `/api/metrics?${query(range, { service, bucket: bucketSize(range).label })}`,
+      metrics,
+      signal,
     ),
-  listDevices: () =>
-    getJson<
-      paths["/api/devices"]["get"]["responses"]["200"]["content"]["application/json"]
-    >("/api/devices"),
-  getLogs: (name: string, query: LogsQuery = {}) => {
-    const params = new URLSearchParams();
-    if (query.since !== undefined) params.set("since", String(query.since));
-    if (query.until !== undefined) params.set("until", String(query.until));
-    if (query.run !== undefined) params.set("run", String(query.run));
-    if (query.stream !== undefined) params.set("stream", query.stream);
-    if (query.limit !== undefined) params.set("limit", String(query.limit));
-    if (query.before !== undefined) params.set("before", query.before);
-    const qs = params.toString();
-    const path = `/api/services/${encodeURIComponent(name)}/logs${qs ? `?${qs}` : ""}`;
-    return getJson<LogsResponse>(path);
-  },
-  logStreamUrl: (name: string) => {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}/api/services/${encodeURIComponent(name)}/logs/stream`;
-  },
-  getConfig: () => getJson<ConfigResponse>("/api/config"),
-  validateConfig: (content: string) =>
-    postJson<ConfigValidateResponse>("/api/config/validate", { content }),
-  putConfig: (toml: string, hash: string) => putConfigRaw(toml, hash),
-  getMetrics: (query: MetricsQuery = {}) => {
-    const params = new URLSearchParams();
-    if (query.service !== undefined) params.set("service", query.service);
-    if (query.since !== undefined) params.set("since", String(query.since));
-    if (query.until !== undefined) params.set("until", String(query.until));
-    if (query.bucket !== undefined) params.set("bucket", query.bucket);
-    const qs = params.toString();
-    return getJson<MetricsResponse>(`/api/metrics${qs ? `?${qs}` : ""}`);
-  },
-  getRestarts: (service?: string, since?: number, until?: number) => {
-    const params = new URLSearchParams();
-    if (service !== undefined) params.set("service", service);
-    if (since !== undefined) params.set("since", String(since));
-    if (until !== undefined) params.set("until", String(until));
-    const qs = params.toString();
-    return getJson<RestartsResponse>(`/api/restarts${qs ? `?${qs}` : ""}`);
-  },
-  getDeviceSamples: (device?: string, since?: number, until?: number) => {
-    const params = new URLSearchParams();
-    if (device !== undefined) params.set("device", device);
-    if (since !== undefined) params.set("since", String(since));
-    if (until !== undefined) params.set("until", String(until));
-    const qs = params.toString();
-    return getJson<DeviceSamplesResponse>(
-      `/api/devices/samples${qs ? `?${qs}` : ""}`,
-    );
-  },
-  getPrometheusMetrics: () => fetch("/metrics").then((r) => r.text()),
-  getInfo: () => getJson<DaemonInfoResponse>("/api/info"),
-  listOneshots: () =>
-    getJson<
-      paths["/api/oneshot"]["get"]["responses"]["200"]["content"]["application/json"]
-    >("/api/oneshot"),
-  createOneshot: (req: OneshotRequest) =>
-    postJson<OneshotResponse>("/api/oneshot", req),
-  getOneshot: (id: string) =>
-    getJson<OneshotStatus>(`/api/oneshot/${encodeURIComponent(id)}`),
-  deleteOneshot: async (id: string): Promise<void> => {
-    const resp = await fetch(`/api/oneshot/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    });
-    if (!resp.ok && resp.status !== 204) {
-      throw new Error(await errorMessage(resp));
+  restarts: (range: Range, service?: string, signal?: AbortSignal) =>
+    request(`/api/restarts?${query(range, { service })}`, restarts, signal),
+  samples: (range: Range, signal?: AbortSignal) =>
+    request(`/api/devices/samples?${query(range)}`, samples, signal),
+  logs: (name: string, range: Range, before?: string, signal?: AbortSignal) =>
+    request(
+      `/api/services/${encodeURIComponent(name)}/logs?${query(range, { before, limit: "200" })}`,
+      logs,
+      signal,
+    ),
+  config: (signal?: AbortSignal) => request("/api/config", config, signal),
+  validate: (content: string) =>
+    request("/api/config/validate", validation, undefined, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content }),
+    }),
+  save: async (content: string, hash: string): Promise<Result<void>> => {
+    try {
+      const response = await fetch("/api/config", {
+        method: "PUT",
+        headers: { "content-type": "text/plain", "if-match": `"${hash}"` },
+        body: content,
+      });
+      if (response.status === 412)
+        return {
+          kind: "error",
+          message:
+            "Config: the file changed on the server. Reload it and review your edits before saving.",
+        };
+      return response.ok
+        ? { kind: "ok", value: undefined }
+        : { kind: "error", message: await failure(response) };
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
     }
   },
-  start: (name: string) =>
-    postJson<StartResponse>(`/api/services/${encodeURIComponent(name)}/start`),
-  stop: (name: string) =>
-    postJson<StopResponse>(`/api/services/${encodeURIComponent(name)}/stop`),
-  restart: (name: string) =>
-    postJson<StartResponse>(
-      `/api/services/${encodeURIComponent(name)}/restart`,
-    ),
-  enable: (name: string) =>
-    postJson<EnableResponse>(
-      `/api/services/${encodeURIComponent(name)}/enable`,
-    ),
-  disable: (name: string) =>
-    postJson<DisableResponse>(
-      `/api/services/${encodeURIComponent(name)}/disable`,
-    ),
-  eventsStreamUrl: () => {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}/api/events`;
+  action: async (
+    name: string,
+    action: "start" | "stop" | "restart" | "enable" | "disable",
+  ): Promise<Result<void>> => {
+    try {
+      const response = await fetch(
+        `/api/services/${encodeURIComponent(name)}/${action}`,
+        { method: "POST" },
+      );
+      return response.ok
+        ? { kind: "ok", value: undefined }
+        : { kind: "error", message: await failure(response) };
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
+    }
   },
 };
+
+export function bucketSize(range: Range) {
+  const span = range.until - range.since;
+  return span <= 3_600_000
+    ? { label: "1m", ms: 60_000 }
+    : span <= 86_400_000
+      ? { label: "5m", ms: 300_000 }
+      : { label: "1h", ms: 3_600_000 };
+}
+
+export function socketUrl(path: string) {
+  const url = new URL(path, location.href);
+  url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  return url.href;
+}
+
+export function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function request<T>(
+  url: string,
+  validate: ValidateFunction<T>,
+  signal?: AbortSignal,
+  init?: RequestInit,
+): Promise<Result<T>> {
+  const result = await raw(url, { ...init, signal });
+  if (result.kind === "error") return result;
+  return validate(result.value)
+    ? { kind: "ok", value: result.value }
+    : {
+        kind: "error",
+        message: `${url.split("?")[0]}: the server returns an invalid response.`,
+      };
+}
+
+async function raw(url: string, init: RequestInit): Promise<Result<unknown>> {
+  try {
+    const response = await fetch(url, init);
+    return response.ok
+      ? { kind: "ok", value: await response.json() }
+      : { kind: "error", message: await failure(response) };
+  } catch (error) {
+    return { kind: "error", message: errorText(error) };
+  }
+}
+
+export async function failure(response: Response) {
+  const text = await response.text();
+  try {
+    const body: unknown = JSON.parse(text);
+    if (body && typeof body === "object" && "error" in body) {
+      const error = body.error;
+      if (typeof error === "string") return error;
+      if (
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof error.message === "string"
+      )
+        return error.message;
+    }
+  } catch {
+    /* Non-JSON upstream failures still carry useful response text. */
+  }
+  return `${response.status}: ${text || response.statusText}`;
+}
+
+function query(range: Range, extra: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams({
+    since: String(range.since),
+    until: String(range.until),
+  });
+  for (const [key, value] of Object.entries(extra))
+    if (value !== undefined) params.set(key, value);
+  return params;
+}
