@@ -209,7 +209,7 @@ export async function mockBackend(
         return {
           object: "list",
           data: inventory
-            .filter((s) => s.modality === "chat")
+            .filter((s) => s.openai_compat && s.modality === "chat")
             .map((s) => ({
               id: s.name,
               object: "model",
