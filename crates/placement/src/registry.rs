@@ -15,6 +15,8 @@ use smol_str::SmolStr;
 /// The balloon resolver needs to fast-kill a peer on an over-committed
 /// GPU without reaching into the supervise crate; `SupervisorHandle`
 /// implements this trait in supervise.
+// `async_trait` returns boxed futures, which Clippy 1.99 treats as already `must_use`.
+#[expect(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait KillHandle: Send + Sync {
     /// Fast-kill the service (short SIGTERM grace, then SIGKILL).
