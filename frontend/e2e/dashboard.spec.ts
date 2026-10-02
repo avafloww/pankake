@@ -299,7 +299,12 @@ test("configuration validation, navigation persistence, and concurrent-edit prot
       .getByRole("alert")
       .filter({ hasText: "Line 1, column 1: Invalid TOML." }),
   ).toBeVisible();
+  await expect(editor).toBeEditable();
+  await editor.press("ControlOrMeta+A");
+  await editor.press("Backspace");
+  await expect(editor).toHaveText("");
   await editor.fill("# pending draft\n[daemon]");
+  await expect(editor).toHaveText("# pending draft[daemon]");
   await page
     .getByRole("navigation")
     .getByRole("button", { name: "Events", exact: true })
