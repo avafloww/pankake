@@ -3,15 +3,32 @@ import { expect, test } from "@playwright/test";
 import type { Schemas } from "../src/api/contract";
 import { mockBackend, referenceServices } from "./fixtures";
 
-for (const modality of ["embedding", "transcription"] as const) {
-  test(`Chat rejects a selected ${modality} service and an unavailable model link`, async ({
+for (const serviceCase of [
+  {
+    label: "embedding",
+    name: "jina-embeddings-v5-text-small-retrieval-vllm",
+    openai_compat: true,
+    modality: "embedding",
+  },
+  {
+    label: "non-OpenAI",
+    name: "comfyui",
+    openai_compat: false,
+    modality: "chat",
+  },
+] as const) {
+  test(`Chat rejects a selected ${serviceCase.label} service and an unavailable model link`, async ({
     page,
   }) => {
-    const name = "jina-embeddings-v5-text-small-retrieval-vllm";
+    const { name } = serviceCase;
     const inventory: Schemas["ServicesResponse"] = {
       services: referenceServices.map((service) =>
         service.name === name
-          ? { ...service, openai_compat: true, modality }
+          ? {
+              ...service,
+              openai_compat: serviceCase.openai_compat,
+              modality: serviceCase.modality,
+            }
           : service,
       ),
       openai_api_port: 7070,
