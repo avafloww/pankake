@@ -12,8 +12,8 @@ pub type DynAsyncRead = Pin<Box<dyn AsyncRead + Send + Unpin + 'static>>;
 
 /// Two-phase container runtime seam. Production uses Docker/Podman CLIs;
 /// tests use [`FakeContainerEngine`](super::FakeContainerEngine).
-// `async_trait` returns boxed futures, which Clippy 1.99 treats as already `must_use`.
-#[expect(clippy::double_must_use)]
+// Clippy 1.99 double-counts `async_trait`'s boxed futures; older stable Clippy does not emit this lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait ContainerEngine: Send + Sync {
     /// An engine that drives `executable` instead of this one's default.
@@ -125,8 +125,8 @@ impl PreparedContainer {
 
 /// A running container handle implementing the common managed-workload
 /// operations.
-// `async_trait` returns boxed futures, which Clippy 1.99 treats as already `must_use`.
-#[expect(clippy::double_must_use)]
+// Clippy 1.99 double-counts `async_trait`'s boxed futures; older stable Clippy does not emit this lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait ManagedContainer: Send + Sync {
     /// Return the container ID.
